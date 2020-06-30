@@ -215,3 +215,63 @@
     :draw (draw-double l1 l2)
     :features [:keep-on-top]
     :middleware [m/fun-mode m/navigation-2d]))
+
+;; Driven Pendulum
+
+(defn L-pend-rect
+  "Single particle to start, under some potential. This is finicky because we have
+  to ignore the y coordinate here.
+
+  It WOULD be cool to color the rod based on its stress."
+  [m g]
+  (fn [[_ [_ y] [xdot ydot]]]
+    (- (* 1/2 m (+ (square xdot)
+                   (square ydot)))
+       (* m g y))))
+
+(defn driven-pend->rect
+  "Convert to rectangular coordinates from a single angle."
+  [l]
+  (fn [[_ [theta]]]
+    (up (* l (sin theta))
+        (- l (* l (cos theta))))))
+
+(defn L-driven
+  "Lagrangian for the double pendulum."
+  [m l g]
+  (compose (L-pend-rect m g)
+           (F->C (driven-pend->rect l))))
+
+(defn draw-driven [l]
+  (let [convert (driven-pend->rect l)]
+    (fn [{:keys [state color time tick]}]
+      ;; Clear the sketch by filling it with light-grey color.
+      (q/background 100)
+
+      ;; Set a fill color to use for subsequent shapes.
+      (q/fill color 255 255)
+
+      ;; Calculate x and y coordinates of the circle.
+      (let [[x y] (convert state)]
+        ;; Move origin point to the center of the sketch.
+        (q/with-translation [(/ (q/width) 2)
+                             (/ (q/height) 2)]
+          (q/line 0 (- l) x (- y))
+          (q/ellipse x (- y) 2 2))))))
+
+(let [m 1
+      l 6
+      g 9.8
+      L (L-driven m l g)
+      initial-state (up 0
+                        (up (/ pi 4))
+                        (up 0))]
+  (q/defsketch driven-pendulum
+    :title "Driven pendulum"
+    :size [500 500]
+    ;; setup function called only once, during sketch initialization.
+    :setup (setup-fn initial-state)
+    :update (Lagrangian-updater L initial-state)
+    :draw (draw-driven l)
+    :features [:keep-on-top]
+    :middleware [m/fun-mode m/navigation-2d]))
