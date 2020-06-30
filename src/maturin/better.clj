@@ -18,11 +18,9 @@
   "I THINK this can stay the same for any of the Lagrangians."
   [initial-state]
   (fn []
-    ;; Set frame rate to 30 frames per second.
     (q/frame-rate 60)
     ;; Set color mode to HSB (HSV) instead of default RGB.
     (q/color-mode :hsb)
-
     ;; setup function returns initial state. It contains
     ;; circle color and position.
     {:state initial-state
@@ -49,21 +47,6 @@
                   :time t2
                   :tick (inc tick)})))))
 
-(defn draw-state [{:keys [state color time tick]}]
-  ;; Clear the sketch by filling it with light-grey color.
-  (q/background 100)
-
-  ;; Set a fill color to use for subsequent shapes.
-  (q/fill color 255 255)
-
-  ;; Calculate x and y coordinates of the circle.
-  (let [[x y] (coordinate state)]
-    ;; Move origin point to the center of the sketch.
-    (q/with-translation [(/ (q/width) 2)
-                         (/ (q/height) 2)]
-      ;; Draw the circle.
-      (q/ellipse x (- y) 5 5))))
-
 ;; # Attempt at an API
 
 (defn init
@@ -86,33 +69,6 @@
   [{:keys [lagrangian transforms]} initial-state]
   {:setup (setup-fn initial-state)
    :update (Lagrangian-updater lagrangian initial-state)})
-
-(let [m 1
-      g 9.8
-      initial-state (up 0 (up 5 5) (up 4 10))]
-  (q/defsketch uniform-particle
-    :title "Particle in uniform gravity"
-    :size [500 500]
-    ;; setup function called only once, during sketch initialization.
-    :setup (setup-fn initial-state)
-    :update (Lagrangian-updater (L-particle m g) initial-state)
-    :draw draw-state
-    :features [:keep-on-top]
-    :middleware [m/fun-mode m/navigation-2d]))
-
-
-(let [m 1
-      k 9.8
-      initial-state (up 0 (up 5 5) (up 4 10))]
-  (q/defsketch harmonic-oscillator-sketch
-    :title "Harmonic oscillator"
-    :size [500 500]
-    ;; setup function called only once, during sketch initialization.
-    :setup (setup-fn initial-state)
-    :update (Lagrangian-updater (L-harmonic m k) initial-state)
-    :draw draw-state
-    :features [:keep-on-top]
-    :middleware [m/fun-mode m/navigation-2d]))
 
 ;; Next, let's do the double pendulum. This is going to require some manual work
 ;; to get the coordinate changes working.
@@ -172,14 +128,15 @@
 
   TODO: Note that you can SEPARATELY compose the potential with various
   transformations."
-  [m1 m2 l1 l2 g]
-  (let [m (down m1 m2 m1 m2)
-        U (U-uniform-gravity m g)]
-    (compose (L-rectangular m U)
-             (F->C (attach-pendulum l1 3))
-             (F->C (attach-pendulum l1 2))
-             (F->C (attach-pendulum l2 1))
-             (F->C (attach-pendulum l1 0)))))
+  [m lengths g]
+  (let [U (U-uniform-gravity m g)]
+    (apply compose
+           (L-rectangular m U)
+           (reverse
+            (map-indexed
+             (fn [i l]
+               (F->C (attach-pendulum l i)))
+             lengths)))))
 
 (defn attach [[x1 y1] [x2 y2]]
   (q/line x1 (- y1) x2 (- y2)))
@@ -196,42 +153,98 @@
     (q/fill color 255 255)
 
     ;; Calculate x and y coordinates of the circle.
-    (let [[b1 b2 b3 b4] (convert state)]
+    (let [[b1 b2 b3] (convert state)]
       ;; Move origin point to the center of the sketch.
       (q/with-translation [(/ (q/width) 2)
                            (/ (q/height) 2)]
         (attach [0 0] b1)
         (attach b1 b2)
         (attach b2 b3)
-        (attach b3 b4)
         (bob b1)
         (bob b2)
         (bob b3)
-        (bob b4)
         ))))
 
-(let [m1 1 m2 1
-      l1 6 l2 6
-      g 9.8
-      L (L-double-pendulum m1 m2 l1 l2 g)
+;; Notes on where I'm leaving this. I really want to get this so I can actually
+;; stack and reuse the transformations, as that's what's so interesting here.
+;;
+;; Right now, there is still some duplication with how the transformations get
+;; stacked internally. We also have duplication on the initial state, and how
+;; many components we have there.
+;;
+;; That needs to get cleaned up, AND we can switch to the interface above where
+;; we
+
+(let [g 9.8
+      m (down 1 1 1)
+      lengths [6 6 6]
+      L (L-double-pendulum m lengths g)
       initial-state (up 0
-                        (up (/ pi 2) (/ pi 2) (/ pi 2) (/ pi 2))
-                        (up 0 0 0 0))]
-  (q/defsketch double-pendulum
-    :title "Double pendulum"
+                        (up (/ pi 2) (/ pi 2) (/ pi 2))
+                        (up 0 0 0))]
+  (q/defsketch triple-pendulum
+    :title "Triple pendulum"
     :size [500 500]
     ;; setup function called only once, during sketch initialization.
     :setup (setup-fn initial-state)
     :update (Lagrangian-updater L initial-state)
-    :draw (draw-double (compose coordinate
-                                (F->C (attach-pendulum l1 3))
-                                (F->C (attach-pendulum l1 2))
-                                (F->C (attach-pendulum l2 1))
-                                (F->C (attach-pendulum l1 0))))
+    :draw (draw-double (apply compose
+                              coordinate
+                              (reverse
+                               (map-indexed
+                                (fn [i l]
+                                  (F->C (attach-pendulum l i)))
+                                lengths))))
     :features [:keep-on-top]
     :middleware [m/fun-mode m/navigation-2d]))
 
-;; Driven Pendulum
+;; Remaining intro stuff
+
+(defn draw-state [{:keys [state color time tick]}]
+  ;; Clear the sketch by filling it with light-grey color.
+  (q/background 100)
+
+  ;; Set a fill color to use for subsequent shapes.
+  (q/fill color 255 255)
+
+  ;; Calculate x and y coordinates of the circle.
+  (let [[x y] (coordinate state)]
+    ;; Move origin point to the center of the sketch.
+    (q/with-translation [(/ (q/width) 2)
+                         (/ (q/height) 2)]
+      ;; Draw the circle.
+      (q/ellipse x (- y) 5 5))))
+
+
+
+(let [m 1
+      g 9.8
+      initial-state (up 0 (up 5 5) (up 4 10))]
+  (q/defsketch uniform-particle
+    :title "Particle in uniform gravity"
+    :size [500 500]
+    ;; setup function called only once, during sketch initialization.
+    :setup (setup-fn initial-state)
+    :update (Lagrangian-updater (L-particle m g) initial-state)
+    :draw draw-state
+    :features [:keep-on-top]
+    :middleware [m/fun-mode m/navigation-2d]))
+
+
+(let [m 1
+      k 9.8
+      initial-state (up 0 (up 5 5) (up 4 10))]
+  (q/defsketch harmonic-oscillator-sketch
+    :title "Harmonic oscillator"
+    :size [500 500]
+    ;; setup function called only once, during sketch initialization.
+    :setup (setup-fn initial-state)
+    :update (Lagrangian-updater (L-harmonic m k) initial-state)
+    :draw draw-state
+    :features [:keep-on-top]
+    :middleware [m/fun-mode m/navigation-2d]))
+
+;; # Driven Pendulum
 
 (defn L-pend-rect
   "Single particle to start, under some potential. This is finicky because we have
