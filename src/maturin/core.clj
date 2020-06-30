@@ -155,12 +155,14 @@
   flattened out."
   [m1 m2 g]
   (fn [[_ [_ y1 _ y2] [xdot1 ydot1 xdot2 ydot2]]]
-    (+ (- (* 1/2 m1 (+ (square xdot1)
-                       (square ydot1)))
-          (* m1 g y1))
-       (- (* 1/2 m2 (+ (square xdot2)
-                       (square ydot2)))
-          (* m2 g y2)))))
+    (+
+     (- (* 1/2 m1 (+ (square xdot1)
+                     (square ydot1)))
+        (* m1 g y1))
+
+     (- (* 1/2 m2 (+ (square xdot2)
+                     (square ydot2)))
+        (* m2 g y2)))))
 
 (defn double-pend->rect
   "Convert to rectangular coordinates from the angles."
@@ -199,7 +201,7 @@
           (q/ellipse x1 (- y1) 2 2)
           )))))
 
-(let [m1 1 m2 1
+(let [m1 4 m2 1
       l1 6 l2 6
       g 9.8
       L (L-double m1 m2 l1 l2 g)
@@ -231,19 +233,20 @@
 
 (defn driven-pend->rect
   "Convert to rectangular coordinates from a single angle."
-  [l]
-  (fn [[_ [theta]]]
+  [l yfn]
+  (fn [[t [theta]]]
     (up (* l (sin theta))
-        (- l (* l (cos theta))))))
+        (- (yfn t)
+           (* l (cos theta))))))
 
 (defn L-driven
   "Lagrangian for the double pendulum."
-  [m l g]
+  [m l g yfn]
   (compose (L-pend-rect m g)
-           (F->C (driven-pend->rect l))))
+           (F->C (driven-pend->rect l yfn))))
 
-(defn draw-driven [l]
-  (let [convert (driven-pend->rect l)]
+(defn draw-driven [l yfn]
+  (let [convert (driven-pend->rect l yfn)]
     (fn [{:keys [state color time tick]}]
       ;; Clear the sketch by filling it with light-grey color.
       (q/background 100)
@@ -256,13 +259,15 @@
         ;; Move origin point to the center of the sketch.
         (q/with-translation [(/ (q/width) 2)
                              (/ (q/height) 2)]
-          (q/line 0 (- l) x (- y))
+          (q/line 0 (- (yfn (state->t state))) x (- y))
           (q/ellipse x (- y) 2 2))))))
 
 (let [m 1
       l 6
       g 9.8
-      L (L-driven m l g)
+      yfn (fn [t]
+            (* 2 (cos (* t (sqrt (/ g l))))))
+      L (L-driven m l g yfn)
       initial-state (up 0
                         (up (/ pi 4))
                         (up 0))]
@@ -272,6 +277,7 @@
     ;; setup function called only once, during sketch initialization.
     :setup (setup-fn initial-state)
     :update (Lagrangian-updater L initial-state)
-    :draw (draw-driven l)
+
+    :draw (draw-driven l yfn)
     :features [:keep-on-top]
     :middleware [m/fun-mode m/navigation-2d]))
