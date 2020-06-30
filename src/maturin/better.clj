@@ -147,15 +147,25 @@
      (fn [q]
        (* g masses (mapv vertical q))))))
 
+(defn attach-pendulum [l idx]
+  (fn [[_ q]]
+    (let [v (structure->vector q)
+          [x y] (get v (dec idx) [0 0])
+          update (fn [angle]
+                   (up (+ x (* l (sin angle)))
+                       (- y (* l (cos angle)))))]
+      (vector->up
+       (update-in v [idx] update)))))
+
 (defn double-pendulum->rect
   "Convert to rectangular coordinates from the angles."
   [l1 l2]
   (fn [[_ [theta phi]]]
     (let [x1 (* l1 (sin theta))
-          y1 (- (* l1 (cos theta)))]
-      (up (up x1 y1)
+          y1 (* l1 (cos theta))]
+      (up (up x1 (- y1))
           (up (+ x1 (* l2 (sin phi)))
-              (- y1 (* l2 (cos phi))))))))
+              (-  y1 (* l2 (cos phi))))))))
 
 (defn L-double-pendulum
   "Lagrangian for the double pendulum.
@@ -163,13 +173,22 @@
   TODO: Note that you can SEPARATELY compose the potential with various
   transformations."
   [m1 m2 l1 l2 g]
-  (let [m (down m1 m2)
+  (let [m (down m1 m2 m1 m2)
         U (U-uniform-gravity m g)]
     (compose (L-rectangular m U)
-             (F->C (double-pend->rect l1 l2)))))
+             (F->C (attach-pendulum l1 3))
+             (F->C (attach-pendulum l1 2))
+             (F->C (attach-pendulum l2 1))
+             (F->C (attach-pendulum l1 0)))))
+
+(defn attach [[x1 y1] [x2 y2]]
+  (q/line x1 (- y1) x2 (- y2)))
+
+(defn bob [[x y]]
+  (q/ellipse x (- y) 2 2))
 
 (defn draw-double [convert]
-  (fn [{:keys [state color time tick]}]
+  (fn [{:keys [state color]}]
     ;; Clear the sketch by filling it with light-grey color.
     (q/background 100)
 
@@ -177,29 +196,38 @@
     (q/fill color 255 255)
 
     ;; Calculate x and y coordinates of the circle.
-    (let [[[x1 y1] [x2 y2]] (convert state)]
+    (let [[b1 b2 b3 b4] (convert state)]
       ;; Move origin point to the center of the sketch.
       (q/with-translation [(/ (q/width) 2)
                            (/ (q/height) 2)]
-        (q/line 0 0 x1 y1)
-        (q/line x1 y1 x2 y2)
-        (q/ellipse x2 y2 2 2)
-        (q/ellipse x1 y1 2 2)))))
+        (attach [0 0] b1)
+        (attach b1 b2)
+        (attach b2 b3)
+        (attach b3 b4)
+        (bob b1)
+        (bob b2)
+        (bob b3)
+        (bob b4)
+        ))))
 
-(let [m1 4 m2 1
+(let [m1 1 m2 1
       l1 6 l2 6
       g 9.8
-      L (L-double m1 m2 l1 l2 g)
+      L (L-double-pendulum m1 m2 l1 l2 g)
       initial-state (up 0
-                        (up (/ pi 4) (/ pi 8))
-                        (up 0 0))]
+                        (up (/ pi 2) (/ pi 2) (/ pi 2) (/ pi 2))
+                        (up 0 0 0 0))]
   (q/defsketch double-pendulum
     :title "Double pendulum"
     :size [500 500]
     ;; setup function called only once, during sketch initialization.
     :setup (setup-fn initial-state)
     :update (Lagrangian-updater L initial-state)
-    :draw (draw-double (double-pendulum->rect l1 l2))
+    :draw (draw-double (compose coordinate
+                                (F->C (attach-pendulum l1 3))
+                                (F->C (attach-pendulum l1 2))
+                                (F->C (attach-pendulum l2 1))
+                                (F->C (attach-pendulum l1 0))))
     :features [:keep-on-top]
     :middleware [m/fun-mode m/navigation-2d]))
 

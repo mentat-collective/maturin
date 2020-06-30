@@ -4,7 +4,7 @@
              [structure :as struct]
              [simplify]]
             [sicmutils.numerical.compile :refer :all])
-  (:import (org.apache.commons.math3.ode.nonstiff GraggBulirschStoerIntegrator.)
+  (:import (org.apache.commons.math3.ode.nonstiff GraggBulirschStoerIntegrator)
            (org.apache.commons.math3.ode FirstOrderDifferentialEquations)
            (org.apache.commons.math3.ode.sampling StepHandler)
            (com.google.common.base Stopwatch)))
