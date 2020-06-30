@@ -13,33 +13,6 @@
 
 (def s->infix (compose ->infix simplify))
 
-(defn V-double
-  "Potential for the double pendulum"
-  [m_1 m_2 l_1 l_2 g]
-  (fn [[_ [theta phi] _]]
-    (let [y_1 (- (* l_1 (cos theta)))
-          y_2 (- y_1 (* l_2 (cos phi)))]
-      (+ (* m_1 g y_1)
-         (* m_2 g y_2)))))
-
-(defn T-double
-  "Kinetic energy for the double pendulum"
-  [m_1 m_2 l_1 l_2 _]
-  (fn [[_ [theta phi] [thetadot phidot]]]
-    (let [v1sq (* (square l_1) (square thetadot))
-          v2sq (* (square l_2) (square phidot))]
-      (+ (* 1/2 m_1 v1sq)
-         (* 1/2 m_2
-            (+ v1sq
-               v2sq
-               (* 2 l_1 l_2 thetadot phidot (cos (- theta phi)))))))))
-
-(def L-double
-  "The Lagrangian!"
-  (- T-double V-double))
-
-;; #
-
 (defn L-particle
   "Single particle to start, under some potential."
   [m g]
@@ -60,58 +33,36 @@
   (Lagrangian->state-derivative
    (L-particle m g)))
 
-(def equations-of-motion
+(def particle-equations-of-motion
+  "Equations of motion for a particle under the influence of a uniform
+  gravitational field."
   ((particle-state-derivative 'm 'g)
    (up 't
        (up 'x 'y)
        (up 'xdot 'ydot))))
 
-(def out (atom []))
+;; # Harmonic Oscillator
 
-(defn observe [t [_ [x y] :as v]]
-  (swap! out conj [t x y]))
+(defn L-harmonic
+  "Lagrangian for a harmonic oscillator"
+  [m k]
+  (fn [[_ q qdot]]
+    (- (* 1/2 m (square qdot))
+       (* 1/2 k (square q)))))
 
-(defn big-test []
-  (let [m 1
-        g 9.8]
-    (s->infix
-     ((o/make-integrator particle-state-derivative [m g])
-      (up 0 (up 0 0) (up 1 1)) ;initial state
-      observe ;callback
-      1/60 ; step size
-      5 ; initial time
-      1e-6 ; allowed absolute and relative error
-      :compile true))))
+(def harmonic-state-derivative
+  (compose Lagrangian->state-derivative
+           L-harmonic))
 
-(defn little-test []
-  (let [m 1
-        g 9.8
-        {:keys [integrator equations]}
-        ((o/little-integrator particle-state-derivative [m g])
-         (up 0 (up 0 0) (up 1 1));initial state
-         0
-         1e-6
-         :compile true)
-        ]
-    ;; this needs to be equal to the FULL dimension, time included.
-    (let [dimension 5
-          out (double-array dimension)]
-      (fn [state tick]
-        (let [s (double-array (flatten state))]
-          evaluation-time (Stopwatch/createUnstarted)
-          (.start evaluation-time)
-          (.integrate integrator equations 0 s tick out)
-          (.stop evaluation-time)
+(def harmonic-equations-of-motion
+  "Equations of motion for a particle under the influence of a uniform
+  gravitational field."
+  ((harmonic-state-derivative 'm 'k)
+   (up 't
+       (up 'x 'y)
+       (up 'xdot 'ydot))))
 
-          (.reset evaluation-time))
-        (struct/unflatten out state)))))
-
-;; # Notes: I think we need to have a framerate, so we render every n steps, AND
-;; # some internal rate where we make the simulation proceed.
-;;
-;; Step one is to get anything working and displaying.
-;;
-;;
+;; # Animation Code
 
 (defn timestamp
   "TODO update this to a cljc compatible catch."
@@ -119,8 +70,9 @@
   (try (/ (q/millis) 1000.0)
        (catch Exception _ 0)))
 
-;; # Animation Code
-(defn setup-fn [initial-state]
+(defn setup-fn
+  "I THINK this can stay the same for any of the Lagrangians."
+  [initial-state]
   (fn []
     ;; Set frame rate to 30 frames per second.
     (q/frame-rate 60)
@@ -132,13 +84,14 @@
     {:state initial-state
      :time (timestamp)
      :color 0
-     :tick 0}))
+     :tick 0
+     :navigation-2d {:zoom 4}}))
 
-(defn grav-particle-updater
-  "Returns an updater for the particle affected by particle."
-  [m g initial-state]
-  (let [{:keys [integrator equations dimension] :as m}
-        ((o/little-integrator particle-state-derivative [m g])
+(defn Lagrangian-updater
+  [L initial-state]
+  (let [state-derivative (Lagrangian->state-derivative L)
+        {:keys [integrator equations dimension] :as m}
+        ((o/little-integrator (constantly state-derivative) [])
          initial-state
          :epsilon 1e-6
          :compile true)
@@ -160,24 +113,105 @@
   (q/fill color 255 255)
 
   ;; Calculate x and y coordinates of the circle.
-  (let [[x y] (coordinate state)
-        zoom 2]
-    (q/scale zoom)
+  (let [[x y] (coordinate state)]
     ;; Move origin point to the center of the sketch.
-    (q/with-translation [(/ (q/width) 2 zoom)
-                         (/ (q/height) 2 zoom)]
+    (q/with-translation [(/ (q/width) 2)
+                         (/ (q/height) 2)]
       ;; Draw the circle.
       (q/ellipse x (- y) 5 5))))
 
 (let [m 1
       g 9.8
-      initial-state (up 0 (up 0 0) (up 10 10))]
-  (q/defsketch lagrange
-    :title "You spin my circle right round"
+      initial-state (up 0 (up 5 5) (up 4 10))]
+  (q/defsketch uniform-particle
+    :title "Particle in uniform gravity"
     :size [500 500]
     ;; setup function called only once, during sketch initialization.
     :setup (setup-fn initial-state)
-    :update (grav-particle-updater m g initial-state)
+    :update (Lagrangian-updater (L-particle m g) initial-state)
     :draw draw-state
+    :features [:keep-on-top]
+    :middleware [m/fun-mode m/navigation-2d]))
+
+
+(let [m 1
+      k 9.8
+      initial-state (up 0 (up 5 5) (up 4 10))]
+  (q/defsketch harmonic-oscillator-sketch
+    :title "Harmonic oscillator"
+    :size [500 500]
+    ;; setup function called only once, during sketch initialization.
+    :setup (setup-fn initial-state)
+    :update (Lagrangian-updater (L-harmonic m k) initial-state)
+    :draw draw-state
+    :features [:keep-on-top]
+    :middleware [m/fun-mode m/navigation-2d]))
+
+;; Next, let's do the double pendulum. This is going to require some manual work
+;; to get the coordinate changes working.
+
+(defn L-two-particles
+  "I know we can do better here, but start with two particles, explicitly
+  flattened out."
+  [m1 m2 g]
+  (fn [[_ [_ y1 _ y2] [xdot1 ydot1 xdot2 ydot2]]]
+    (+ (- (* 1/2 m1 (+ (square xdot1)
+                       (square ydot1)))
+          (* m1 g y1))
+       (- (* 1/2 m2 (+ (square xdot2)
+                       (square ydot2)))
+          (* m2 g y2)))))
+
+(defn double-pend->rect
+  "Convert to rectangular coordinates from the angles."
+  [l1 l2]
+  (fn [[_ [theta phi]]]
+    (let [x1 (* l1 (sin theta))
+          y1 (* l1 (cos theta))]
+      (up x1
+          y1
+          (+ x1 (* l2 (sin phi)))
+          (+ y1 (* l2 (cos phi)))))))
+
+(defn L-double
+  "Lagrangian for the double pendulum."
+  [m1 m2 l1 l2 g]
+  (compose (L-two-particles m1 m2 g)
+           (F->C (double-pend->rect l1 l2))))
+
+(defn draw-double [l1 l2]
+  (let [convert (double-pend->rect l1 l2)]
+    (fn [{:keys [state color time tick]}]
+      ;; Clear the sketch by filling it with light-grey color.
+      (q/background 100)
+
+      ;; Set a fill color to use for subsequent shapes.
+      (q/fill color 255 255)
+
+      ;; Calculate x and y coordinates of the circle.
+      (let [[x1 y1 x2 y2] (convert state)]
+        ;; Move origin point to the center of the sketch.
+        (q/with-translation [(/ (q/width) 2)
+                             (/ (q/height) 2)]
+          (q/line 0 0 x1 (- y1))
+          (q/line x1 (- y1) x2 (- y2))
+          (q/ellipse x2 (- y2) 2 2)
+          (q/ellipse x1 (- y1) 2 2)
+          )))))
+
+(let [m1 1 m2 1
+      l1 6 l2 6
+      g 9.8
+      L (L-double m1 m2 l1 l2 g)
+      initial-state (up 0
+                        (up (/ pi 4) (/ pi 8))
+                        (up 0 0))]
+  (q/defsketch double-pendulum
+    :title "Double pendulum"
+    :size [500 500]
+    ;; setup function called only once, during sketch initialization.
+    :setup (setup-fn initial-state)
+    :update (Lagrangian-updater L initial-state)
+    :draw (draw-double l1 l2)
     :features [:keep-on-top]
     :middleware [m/fun-mode m/navigation-2d]))
