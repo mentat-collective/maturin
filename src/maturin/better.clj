@@ -1,4 +1,4 @@
-(ns maturin.core
+(ns maturin.better
   (:refer-clojure :exclude [partial zero? + - * / ref])
   (:require [maturin.ode :as o]
             [sicmutils.env :refer :all]
@@ -7,59 +7,6 @@
             [quil.middleware :as m]))
 
 ;; # Double Pendulum
-
-(def s->infix (compose ->infix simplify))
-
-(defn L-particle
-  "Single particle to start, under some potential."
-  [m g]
-  (fn [[_ [_ y] qdot]]
-    (- (* 1/2 m (square qdot))
-       (* m g y))))
-
-;; Check the equations of motion.
-(s->infix
- ((L-particle 'm 'g)
-  (up 't
-      (up 'x 'y)
-      (up 'xdot 'ydot))))
-
-(defn particle-state-derivative
-  "Returns a function that can generate the derivative of the state for us."
-  [m g]
-  (Lagrangian->state-derivative
-   (L-particle m g)))
-
-(def particle-equations-of-motion
-  "Equations of motion for a particle under the influence of a uniform
-  gravitational field."
-  ((particle-state-derivative 'm 'g)
-   (up 't
-       (up 'x 'y)
-       (up 'xdot 'ydot))))
-
-;; # Harmonic Oscillator
-
-(defn L-harmonic
-  "Lagrangian for a harmonic oscillator"
-  [m k]
-  (fn [[_ q qdot]]
-    (- (* 1/2 m (square qdot))
-       (* 1/2 k (square q)))))
-
-(def harmonic-state-derivative
-  (compose Lagrangian->state-derivative
-           L-harmonic))
-
-(def harmonic-equations-of-motion
-  "Equations of motion for a particle under the influence of a uniform
-  gravitational field."
-  ((harmonic-state-derivative 'm 'k)
-   (up 't
-       (up 'x 'y)
-       (up 'xdot 'ydot))))
-
-;; # Animation Code
 
 (defn timestamp
   "TODO update this to a cljc compatible catch."
@@ -117,6 +64,29 @@
       ;; Draw the circle.
       (q/ellipse x (- y) 5 5))))
 
+;; # Attempt at an API
+
+(defn init
+  "Generates an initial state dictionary."
+  [L]
+  {:lagrangian L
+   :transforms []})
+
+(defn transform
+  "Takes a state dictionary and stores the coordinate transformation, AND composes
+  it with the Lagrangian."
+  [m f]
+  (let [xform (F->C f)]
+    (-> m
+        (update-in :transforms assoc xform)
+        (update-in :lagrangian compose xform))))
+
+(defn build
+  "Returns the final keys for the sketch."
+  [{:keys [lagrangian transforms]} initial-state]
+  {:setup (setup-fn initial-state)
+   :update (Lagrangian-updater lagrangian initial-state)})
+
 (let [m 1
       g 9.8
       initial-state (up 0 (up 5 5) (up 4 10))]
@@ -147,56 +117,74 @@
 ;; Next, let's do the double pendulum. This is going to require some manual work
 ;; to get the coordinate changes working.
 
-(defn L-two-particles
-  "I know we can do better here, but start with two particles, explicitly
-  flattened out."
-  [m1 m2 g]
-  (fn [[_ [_ y1 _ y2] [xdot1 ydot1 xdot2 ydot2]]]
-    (+
-     (- (* 1/2 m1 (+ (square xdot1)
-                     (square ydot1)))
-        (* m1 g y1))
+(defn L-rectangular
+  "Accepts:
 
-     (- (* 1/2 m2 (+ (square xdot2)
-                     (square ydot2)))
-        (* m2 g y2)))))
+  - a down tuple of the masses of each particle
+  - a potential function of all coordinates
 
-(defn double-pend->rect
+  Returns a function of local tuple -> the Lagrangian for N cartesian
+  coordinates."
+  [masses U]
+  (fn [[_ q qdot]]
+    (- (* 1/2 masses (mapv square qdot))
+       (U q))))
+
+(defn U-uniform-gravity
+  "Accepts:
+
+  - a down tuple of each particle's mass
+  - g, the gravitational constant
+  - optionally, the cartesian coordinate index of the vertical component. You'd
+    need to update this if you went into 3d.
+
+  Returns a function of the generalized coordinates to a uniform vertical
+  gravitational potential."
+  ([masses g]
+   (U-uniform-gravity masses g 1))
+  ([masses g vertical-coordinate]
+   (let [vertical #(nth % vertical-coordinate)]
+     (fn [q]
+       (* g masses (mapv vertical q))))))
+
+(defn double-pendulum->rect
   "Convert to rectangular coordinates from the angles."
   [l1 l2]
   (fn [[_ [theta phi]]]
     (let [x1 (* l1 (sin theta))
-          y1 (* l1 (cos theta))]
-      (up x1
-          y1
-          (+ x1 (* l2 (sin phi)))
-          (+ y1 (* l2 (cos phi)))))))
+          y1 (- (* l1 (cos theta)))]
+      (up (up x1 y1)
+          (up (+ x1 (* l2 (sin phi)))
+              (- y1 (* l2 (cos phi))))))))
 
-(defn L-double
-  "Lagrangian for the double pendulum."
+(defn L-double-pendulum
+  "Lagrangian for the double pendulum.
+
+  TODO: Note that you can SEPARATELY compose the potential with various
+  transformations."
   [m1 m2 l1 l2 g]
-  (compose (L-two-particles m1 m2 g)
-           (F->C (double-pend->rect l1 l2))))
+  (let [m (down m1 m2)
+        U (U-uniform-gravity m g)]
+    (compose (L-rectangular m U)
+             (F->C (double-pend->rect l1 l2)))))
 
-(defn draw-double [l1 l2]
-  (let [convert (double-pend->rect l1 l2)]
-    (fn [{:keys [state color time tick]}]
-      ;; Clear the sketch by filling it with light-grey color.
-      (q/background 100)
+(defn draw-double [convert]
+  (fn [{:keys [state color time tick]}]
+    ;; Clear the sketch by filling it with light-grey color.
+    (q/background 100)
 
-      ;; Set a fill color to use for subsequent shapes.
-      (q/fill color 255 255)
+    ;; Set a fill color to use for subsequent shapes.
+    (q/fill color 255 255)
 
-      ;; Calculate x and y coordinates of the circle.
-      (let [[x1 y1 x2 y2] (convert state)]
-        ;; Move origin point to the center of the sketch.
-        (q/with-translation [(/ (q/width) 2)
-                             (/ (q/height) 2)]
-          (q/line 0 0 x1 (- y1))
-          (q/line x1 (- y1) x2 (- y2))
-          (q/ellipse x2 (- y2) 2 2)
-          (q/ellipse x1 (- y1) 2 2)
-          )))))
+    ;; Calculate x and y coordinates of the circle.
+    (let [[[x1 y1] [x2 y2]] (convert state)]
+      ;; Move origin point to the center of the sketch.
+      (q/with-translation [(/ (q/width) 2)
+                           (/ (q/height) 2)]
+        (q/line 0 0 x1 y1)
+        (q/line x1 y1 x2 y2)
+        (q/ellipse x2 y2 2 2)
+        (q/ellipse x1 y1 2 2)))))
 
 (let [m1 4 m2 1
       l1 6 l2 6
@@ -211,7 +199,7 @@
     ;; setup function called only once, during sketch initialization.
     :setup (setup-fn initial-state)
     :update (Lagrangian-updater L initial-state)
-    :draw (draw-double l1 l2)
+    :draw (draw-double (double-pendulum->rect l1 l2))
     :features [:keep-on-top]
     :middleware [m/fun-mode m/navigation-2d]))
 
