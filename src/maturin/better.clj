@@ -57,17 +57,22 @@
   "Takes a state dictionary and stores the coordinate transformation, AND composes
   it with the Lagrangian."
   [m f]
-  (let [xform (F->C f)]
-    (update-in m [:transforms] conj xform)))
+  (if-not (map? m)
+    (transform (init m) f)
+    (let [xform (F->C f)]
+      (update-in m [:transforms] conj xform))))
 
 (defn build
   "Returns the final keys for the sketch."
-  [{:keys [lagrangian transforms]} initial-state]
-  (let [xform (apply compose (reverse transforms))
-        L (compose lagrangian xform)]
-    {:setup (setup-fn initial-state)
-     :update (Lagrangian-updater L initial-state)
-     :xform (compose coordinate xform)}))
+  [m initial-state]
+  (if-not (map? m)
+    (build (init m) initial-state)
+    (let [{:keys [lagrangian transforms] :as m} m
+          xform (apply compose (reverse transforms))
+          L (compose lagrangian xform)]
+      {:setup (setup-fn initial-state)
+       :update (Lagrangian-updater L initial-state)
+       :xform (compose coordinate xform)})))
 
 ;; Next, let's do the double pendulum. This is going to require some manual work
 ;; to get the coordinate changes working.
@@ -142,7 +147,7 @@
   [m lengths g]
   (let [U (U-uniform-gravity m g)]
     (reduce transform
-            (init (L-rectangular m U))
+            (L-rectangular m U)
             (map-indexed
              (fn [i l]
                (attach-pendulum l i (if (zero? i)
@@ -227,7 +232,7 @@
       g 9.8
       L (L-particle m g)
       initial-state (up 0 (up 5 5) (up 4 10))
-      built (build (init L) initial-state)]
+      built (build L initial-state)]
   (q/defsketch uniform-particle
     :title "Particle in uniform gravity"
     :size [500 500]
