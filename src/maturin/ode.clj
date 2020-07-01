@@ -47,7 +47,6 @@
           initial-state-array (doubles (state->array initial-state))
           dimension (alength initial-state-array)
           eps (double epsilon)
-
           derivative-fn (if compile
                           (compile-state-function state-derivative derivative-args initial-state)
                           (do (log/warn "Not compiling function for ODE analysis")
