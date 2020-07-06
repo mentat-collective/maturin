@@ -24,7 +24,8 @@
      :time (timestamp)
      :color 0
      :tick 0
-     :navigation-2d {:zoom 4}}))
+     :navigation-2d {:zoom 4}
+     }))
 
 (defn Lagrangian-updater
   "Returns an update function that uses the supplied Lagrangian to tick forward."
@@ -243,6 +244,54 @@
     :features [:keep-on-top]
     :middleware [m/fun-mode m/navigation-2d]))
 
+;; # Particle on an Ellipse
+
+(defn L-free-3d [m]
+  (fn [[_ _ qdot]]
+    (* 1/2 m (square qdot))))
+
+(defn elliptical->rect [a b c]
+  (fn [[_ [θ φ] _]]
+    (up (* a (sin θ) (cos φ))
+        (* b (sin θ) (sin φ))
+        (* c (cos θ)))))
+
+(defn draw-ellipse [convert]
+  (fn [{:keys [state color]}]
+    ;; Clear the sketch by filling it with light-grey color.
+    (q/background 100)
+
+    ;; Set a fill color to use for subsequent shapes.
+
+    ;; Calculate x and y coordinates of the circle.
+    (let [[x y z] (convert state)]
+      ;; Move origin point to the center of the sketch.
+      (q/with-translation [(/ (q/width) 2)
+                           (/ (q/height) 2)]
+
+        (q/fill 0 255 255 50)
+        (q/sphere 3)
+        ;; Draw the circle.
+        (q/fill color 255 255)
+        (q/with-translation [x y z]
+          (q/ellipse 0 0 1 1))))))
+
+(let [m 1
+      initial-state (up 0 (up 1 1) (up 1 1))
+      L (transform (L-free-3d m)
+                   (elliptical->rect 3 3 8))
+      built (build L initial-state)]
+  (q/defsketch triaxial-particle
+    :title "Particle on an ellipse"
+    :size [500 500]
+    ;; setup function called only once, during sketch initialization.
+    :setup (:setup built)
+    :update (:update built)
+    :draw (draw-ellipse (:xform built))
+    :features [:keep-on-top]
+    :renderer :p3d
+    :middleware [m/fun-mode m/navigation-3d]))
+
 
 ;; # Harmonic Oscillator
 
@@ -278,7 +327,7 @@
            (* l (cos theta))))))
 
 (defn draw-driven [convert support-fn]
-  (fn [{:keys [state color time tick]}]
+  (fn [{:keys [state color time tick] :as m}]
     ;; Clear the sketch by filling it with light-grey color.
     (q/background 100)
 
@@ -314,4 +363,4 @@
     :update (:update built)
     :draw (draw-driven (:xform built) (fn [t] [0 (yfn t)]))
     :features [:keep-on-top]
-    :middleware [m/fun-mode m/navigation-2d]))
+    :middleware [m/fun-mode m/navigation-3d]))
