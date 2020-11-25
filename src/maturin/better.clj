@@ -1,8 +1,8 @@
 (ns maturin.better
   "Next, I think we want to transform this into a Middleware for Quil: https://github.com/quil/quil/wiki/Middleware"
   (:refer-clojure :exclude [partial zero? + - * / ref])
-  (:require [maturin.ode :as o]
-            [sicmutils.env :refer :all]
+  (:require [sicmutils.env :refer :all]
+            [sicmutils.numerical.ode :as ode]
             [sicmutils.structure :as struct]
             [quil.core :as q]
             [quil.middleware :as m]))
@@ -32,10 +32,11 @@
   [L initial-state]
   (let [state-derivative (Lagrangian->state-derivative L)
         {:keys [integrator equations dimension] :as m}
-        ((o/little-integrator (constantly state-derivative) [])
-         initial-state
-         :epsilon 1e-6
-         :compile true)
+        (ode/integration-opts (constantly state-derivative)
+                              []
+                              initial-state
+                              {:epsilon 1e-6
+                               :compile? true})
         buffer (double-array dimension)]
     (fn [{:keys [state time color tick] :as m}]
       (let [s (double-array (flatten state))
@@ -188,22 +189,23 @@
         (bob b2)
         (bob b3)))))
 
-(let [g 9.8
-      m (down 1 1 1)
-      lengths [4 8 12]
-      L (L-chain m lengths g)
-      initial-state (up 0
-                        (up (/ pi 2) (/ pi 2) (/ pi 2))
-                        (up 0 0 0))
-      built (build L initial-state)]
-  (q/defsketch triple-pendulum
-    :title "Triple pendulum"
-    :size [500 500]
-    :setup (:setup built)
-    :update (:update built)
-    :draw (draw-chain (:xform built))
-    :features [:keep-on-top]
-    :middleware [m/fun-mode m/navigation-2d]))
+(comment
+  (let [g 98
+        m (down 1 1 1)
+        lengths [4 10 12]
+        L (L-chain m lengths g)
+        initial-state (up 0
+                          (up pi (/ pi 2) (/ pi 2))
+                          (up 0 0 0))
+        built (build L initial-state)]
+    (q/defsketch triple-pendulum
+      :title "Triple pendulum"
+      :size [500 500]
+      :setup (:setup built)
+      :update (:update built)
+      :draw (draw-chain (:xform built))
+      :features [:keep-on-top]
+      :middleware [m/fun-mode m/navigation-2d])))
 
 ;; Remaining intro stuff
 
@@ -229,20 +231,21 @@
         ;; Draw the circle.
         (q/ellipse x (- y) 5 5)))))
 
-(let [m 1
-      g 9.8
-      L (L-particle m g)
-      initial-state (up 0 (up 5 5) (up 4 10))
-      built (build L initial-state)]
-  (q/defsketch uniform-particle
-    :title "Particle in uniform gravity"
-    :size [500 500]
-    ;; setup function called only once, during sketch initialization.
-    :setup (:setup built)
-    :update (:update built)
-    :draw (draw-particle (:xform built))
-    :features [:keep-on-top]
-    :middleware [m/fun-mode m/navigation-2d]))
+(comment
+  (let [m 1
+        g 9.8
+        L (L-particle m g)
+        initial-state (up 0 (up 5 5) (up 4 10))
+        built (build L initial-state)]
+    (q/defsketch uniform-particle
+      :title "Particle in uniform gravity"
+      :size [500 500]
+      ;; setup function called only once, during sketch initialization.
+      :setup (:setup built)
+      :update (:update built)
+      :draw (draw-particle (:xform built))
+      :features [:keep-on-top]
+      :middleware [m/fun-mode m/navigation-2d])))
 
 ;; # Particle on an Ellipse
 
@@ -276,21 +279,22 @@
         (q/with-translation [x y z]
           (q/ellipse 0 0 1 1))))))
 
-(let [m 1
-      initial-state (up 0 (up 1 1) (up 1 1))
-      L (transform (L-free-3d m)
-                   (elliptical->rect 3 3 8))
-      built (build L initial-state)]
-  (q/defsketch triaxial-particle
-    :title "Particle on an ellipse"
-    :size [500 500]
-    ;; setup function called only once, during sketch initialization.
-    :setup (:setup built)
-    :update (:update built)
-    :draw (draw-ellipse (:xform built))
-    :features [:keep-on-top]
-    :renderer :p3d
-    :middleware [m/fun-mode m/navigation-3d]))
+(comment
+  (let [m 1
+        initial-state (up 0 (up 1 1) (up 1 5))
+        L (transform (L-free-3d m)
+                     (elliptical->rect 3 3 8))
+        built (build L initial-state)]
+    (q/defsketch triaxial-particle
+      :title "Particle on an ellipse"
+      :size [500 500]
+      ;; setup function called only once, during sketch initialization.
+      :setup (:setup built)
+      :update (:update built)
+      :draw (draw-ellipse (:xform built))
+      :features [:keep-on-top]
+      :renderer :p3d
+      :middleware [m/fun-mode m/navigation-3d])))
 
 
 ;; # Harmonic Oscillator
@@ -302,19 +306,20 @@
     (- (* 1/2 m (square qdot))
        (* 1/2 k (square q)))))
 
-(let [m 1
-      k 9.8
-      L (L-harmonic m k)
-      initial-state (up 0 (up 5 5) (up 4 10))
-      built (build (init L) initial-state)]
-  (q/defsketch harmonic-oscillator-sketch
-    :title "Harmonic oscillator"
-    :size [500 500]
-    :setup (:setup built)
-    :update (:update built)
-    :draw (draw-particle (:xform built))
-    :features [:keep-on-top]
-    :middleware [m/fun-mode m/navigation-2d]))
+(comment
+  (let [m 1
+        k 9.8
+        L (L-harmonic m k)
+        initial-state (up 0 (up 5 5) (up 4 10))
+        built (build (init L) initial-state)]
+    (q/defsketch harmonic-oscillator-sketch
+      :title "Harmonic oscillator"
+      :size [500 500]
+      :setup (:setup built)
+      :update (:update built)
+      :draw (draw-particle (:xform built))
+      :features [:keep-on-top]
+      :middleware [m/fun-mode m/navigation-2d])))
 
 ;; # Driven Pendulum
 
@@ -343,24 +348,25 @@
         (q/line xₛ (- yₛ) x (- y))
         (q/ellipse x (- y) 2 2)))))
 
-(let [m 1
-      l 6
-      g 9.8
-      yfn (fn [t]
-            (* 10 (cos (* t 5))))
-      L (-> (L-particle m g)
-            init
-            (transform (driven-pendulum->rect l yfn)))
-      initial-state (up 0
-                        (up (/ pi 4))
-                        (up 0))
-      built (build L initial-state)]
-  (q/defsketch driven-pendulum
-    :title "Driven pendulum"
-    :size [500 500]
-    ;; setup function called only once, during sketch initialization.
-    :setup (:setup built)
-    :update (:update built)
-    :draw (draw-driven (:xform built) (fn [t] [0 (yfn t)]))
-    :features [:keep-on-top]
-    :middleware [m/fun-mode m/navigation-3d]))
+(comment
+  (let [m 1
+        l 6
+        g 9.8
+        yfn (fn [t]
+              (* 10 (cos (* t 5))))
+        L (-> (L-particle m g)
+              init
+              (transform (driven-pendulum->rect l yfn)))
+        initial-state (up 0
+                          (up (/ pi 4))
+                          (up 0))
+        built (build L initial-state)]
+    (q/defsketch driven-pendulum
+      :title "Driven pendulum"
+      :size [500 500]
+      ;; setup function called only once, during sketch initialization.
+      :setup (:setup built)
+      :update (:update built)
+      :draw (draw-driven (:xform built) (fn [t] [0 (yfn t)]))
+      :features [:keep-on-top]
+      :middleware [m/fun-mode m/navigation-3d])))
