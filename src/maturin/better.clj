@@ -5,7 +5,8 @@
             [sicmutils.numerical.ode :as ode]
             [sicmutils.structure :as struct]
             [quil.core :as q]
-            [quil.middleware :as m]))
+            [quil.middleware :as m]
+            [distributions.core :as d]))
 
 (defn timestamp
   "TODO update this to a cljc compatible catch."
