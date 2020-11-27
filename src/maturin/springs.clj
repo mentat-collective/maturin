@@ -10,7 +10,7 @@
 (defn linear-func [slope intercept]
     (fn [x] (+ intercept (* slope x)))) 
 
-;; lagrangian for the springs-rod system
+;; lagrangian for the springs-rod system, regression case:
 ;; springs constrained to have the same x-coordiate on both axes = minimize MSE
 (defn L-regression
     [xs ys k]
@@ -18,6 +18,19 @@
         (let [preds (map (linear-func slope intercept) xs)
             diffs (mapv - preds ys)]
             (- (* 1/2 k (square diffs))))))
+
+(defn distance-point-line [slope intercept]
+    (fn [x y]
+        (/ (Math/abs (+ (* slope x) (- y) intercept)) (Math/sqrt (square [slope 1])))))
+
+;; lagrangian for the springs-rod system, PCA case:
+;; springs can "slide" on the bar's end = minimize point-line distance
+(defn L-PCA
+    [xs ys k]
+    (fn [[_ [slope intercept] _]]
+        (let [diffs (mapv (distance-point-line slope intercept) xs ys)]            
+            (- (* 1/2 k (square diffs))))))
+        
 
 ;; trying to draw _something_, prettify later
 (defn draw-line [convert]
