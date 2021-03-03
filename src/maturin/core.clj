@@ -242,8 +242,7 @@
         L (L-particle m g)
         initial-state (up 0 (up 5 5) (up 4 10))
         built (build L initial-state)]
-
-    #_(q/defsketch uniform-particle
+    (q/defsketch uniform-particle
       :title "Particle in uniform gravity"
       :size [500 500]
       ;; setup function called only once, during sketch initialization.

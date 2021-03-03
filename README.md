@@ -1,5 +1,9 @@
 # Maturin
 
+To get this working:
+
+- evaluate `maturin.core`
+- look
 A Quil sketch designed to ... well, that part is up to you! More docs coming
 soon :)
 
