@@ -1,6 +1,6 @@
-(ns maturin.better
+(ns maturin.core
   "Next, I think we want to transform this into a Middleware for Quil: https://github.com/quil/quil/wiki/Middleware"
-  (:refer-clojure :exclude [partial zero? + - * / ref])
+  (:refer-clojure :exclude [partial zero? + - * / ref compare])
   (:require [sicmutils.env :refer :all]
             [sicmutils.numerical.ode :as ode]
             [sicmutils.structure :as struct]
@@ -70,7 +70,11 @@
   (if-not (map? m)
     (build (init m) initial-state)
     (let [{:keys [lagrangian transforms] :as m} m
-          xform (apply compose (reverse transforms))
+          ;; this is a hack! compose should be able to handle empty sequences.
+          ;; I'll fix this...
+          xform (if-let [xforms (seq transforms)]
+                  (apply compose (reverse transforms))
+                  identity)
           L (compose lagrangian xform)]
       {:setup (setup-fn initial-state)
        :update (Lagrangian-updater L initial-state)
@@ -190,6 +194,7 @@
         (bob b3)))))
 
 (comment
+  ;; Woohoo, works!!
   (let [g 98
         m (down 1 1 1)
         lengths [4 10 12]
@@ -237,7 +242,8 @@
         L (L-particle m g)
         initial-state (up 0 (up 5 5) (up 4 10))
         built (build L initial-state)]
-    (q/defsketch uniform-particle
+
+    #_(q/defsketch uniform-particle
       :title "Particle in uniform gravity"
       :size [500 500]
       ;; setup function called only once, during sketch initialization.
