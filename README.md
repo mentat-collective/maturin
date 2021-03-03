@@ -1,11 +1,22 @@
 # Maturin
 
-To get this working:
+`maturin.core` contains an attempt from last July at an API for running
+animations of physical systems, powered by a Lagrangian.
+
+`core` contains animators for:
+
+- a triple pendulum!
+- a particle moving under uniform gravity
+- a particle confined to an ellipse, rendered in 3D
+- a "driven" pendulum
+
+### To get this working:
 
 - evaluate `maturin.core`
-- look
-A Quil sketch designed to ... well, that part is up to you! More docs coming
-soon :)
+- go to each `comment` block and evaluate the form inside to trigger an
+  animation.
+
+I've added some inline notes on what I was thinking for each piece.
 
 ## License
 

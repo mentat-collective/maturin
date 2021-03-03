@@ -5,13 +5,20 @@
             [sicmutils.numerical.ode :as ode]
             [sicmutils.structure :as struct]
             [quil.core :as q]
-            [quil.middleware :as m]))
+            [quil.middleware :as m])
+  (:import (org.apache.commons.math3.ode.nonstiff GraggBulirschStoerIntegrator)))
+
+;; This all only runs in Clojure mode, for the simple reason that when I did the
+;; exploration, the Clojurescript port of sicmutils didn't exist!
 
 (defn timestamp
   "TODO update this to a cljc compatible catch."
   []
   (try (/ (q/millis) 1000.0)
        (catch Exception _ 0)))
+
+;; The goal was to make an API that shared information between the following two
+;; functions, AND a draw routine.
 
 (defn setup-fn
   "I THINK this can stay the same for any of the Lagrangians."
@@ -41,7 +48,19 @@
     (fn [{:keys [state time color tick] :as m}]
       (let [s (double-array (flatten state))
             t2 (timestamp)]
-        (.integrate integrator equations time s t2 buffer)
+        ;; Every update step uses `integrator` to push forward from `time` to
+        ;; `t2`, the current timestamp. This is probably NOT the best way! The
+        ;; integrator can run much faster than realtime, and it's most efficient
+        ;; when we let it do that, and let it internally hit a callback at
+        ;; specified intervals. But that is not how the functional API works for
+        ;; Quil.
+        ;;
+        ;; Should we instead let it run forward in a different thread at larger
+        ;; steps and feed some data structure? Or just... not worry about it??
+        (.integrate ^GraggBulirschStoerIntegrator integrator
+                    equations time s t2 buffer)
+
+        ;; Every tick of the integator gives us these new fields.
         (merge m {:color (mod (inc color) 255)
                   :state (struct/unflatten buffer state)
                   :time t2
@@ -53,6 +72,9 @@
   "Generates an initial state dictionary."
   [L]
   {:lagrangian L
+
+   ;; These are the coordinate transforms I was mentioning. We eventually need
+   ;; to compose them with L, but we need them for the drawing code too!
    :transforms []})
 
 (defn transform
@@ -61,6 +83,8 @@
   [m f]
   (if-not (map? m)
     (transform (init m) f)
+    ;; `F->C` turns a function that JUST transforms coordinates into a new
+    ;; function that transforms the whole local tuple.
     (let [xform (F->C f)]
       (update-in m [:transforms] conj xform))))
 
@@ -71,7 +95,7 @@
     (build (init m) initial-state)
     (let [{:keys [lagrangian transforms] :as m} m
           ;; this is a hack! compose should be able to handle empty sequences.
-          ;; I'll fix this...
+          ;; I'll fix this.
           xform (if-let [xforms (seq transforms)]
                   (apply compose (reverse transforms))
                   identity)
@@ -93,6 +117,8 @@
   coordinates."
   [masses U]
   (fn [[_ q qdot]]
+    ;; because `masses` is a down tuple, and `(mapv square qdot)` is an up, this
+    ;; triggers a contraction!
     (- (* 1/2 masses (mapv square qdot))
        (U q))))
 
@@ -113,6 +139,17 @@
      (fn [q]
        (* g masses (mapv vertical q))))))
 
+;; Think of this next function like a coordinate transform that's targeted at a
+;; specific spot in the `q` structure. I want to specify a sequence of all of
+;; the angles, and I need to provide a transform from that angle to `x, y`
+;; coordinates.
+;;
+;; but what is the angle? It's the angle of the new pendulum off of vertical,
+;; but with its zero point offset to the XY coordinate of the pendulum bob it's
+;; getting attached to!
+;;
+;; So you query the `attachment`'s XY, then use that to transform your index.
+
 (defn attach-pendulum
   "Replaces an angle at the ith index with a pendulum. The supplied attachment
   can be either a:
@@ -121,10 +158,10 @@
     there
   - A 2-tuple, representing a 2d attachment point
 
-  If the attachment index doesn't exist, attaches to the origin.
-  "
+  If the attachment index doesn't exist, attaches to the origin."
   [l idx attachment]
   (fn [[_ q]]
+    ;; We shouldn't need any of this `structure->vector` and back code anymore.
     (let [v (structure->vector q)
           [x y] (if (vector? attachment)
                   attachment
@@ -146,6 +183,8 @@
           (up (+ x1 (* l2 (sin phi)))
               (-  y1 (* l2 (cos phi))))))))
 
+;; `reduce` means that each angle is transformed to XY before the next angle
+;; needs it!
 
 (defn L-chain
   "Lagrangian for a chain of pendulums under the influence of a uniform
@@ -173,6 +212,9 @@
   [[x y]]
   (q/ellipse x (- y) 2 2))
 
+;; WARNING! This is hardcoded to THREE now. I didn't make it general enough to
+;; actually respond to the shape of the `state` it gets passed.
+
 (defn draw-chain [convert]
   (fn [{:keys [state color]}]
     ;; Clear the sketch by filling it with light-grey color.
@@ -194,7 +236,10 @@
         (bob b3)))))
 
 (comment
-  ;; Woohoo, works!!
+  ;; Woohoo, works!! You'll find that the simplification gets SUPER slow beyond
+  ;; three pendulums. I think I know why that is happening and I bet we can make
+  ;; it all smoking fast... but bear with the simplifier for now!
+
   (let [g 98
         m (down 1 1 1)
         lengths [4 10 12]
@@ -212,7 +257,7 @@
       :features [:keep-on-top]
       :middleware [m/fun-mode m/navigation-2d])))
 
-;; Remaining intro stuff
+;; ## Remaining intro stuff
 
 (defn L-particle
   "Single particle to start, under some potential."
@@ -220,6 +265,10 @@
   (fn [[_ [_ y] qdot]]
     (- (* 1/2 m (square qdot))
        (* m g y))))
+
+;; We have to re-make the drawing functions for each new animation, since I
+;; didn't make that generic. And it sort of can't be... BUT the updater code can
+;; be shared!
 
 (defn draw-particle [convert]
   (fn [{:keys [state color]}]
